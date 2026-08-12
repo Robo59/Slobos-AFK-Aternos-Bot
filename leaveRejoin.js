@@ -4,7 +4,6 @@ function randomMs(minMs, maxMs) {
 
 function setupLeaveRejoin(bot, createBot) {
     // Timers
-    let leaveTimer = null
     let jumpTimer = null
     let jumpOffTimer = null
     let reconnectTimer = null
@@ -24,86 +23,89 @@ function setupLeaveRejoin(bot, createBot) {
 
     function cleanup() {
         stopped = true
-        if (leaveTimer) clearTimeout(leaveTimer)
+
         if (jumpTimer) clearTimeout(jumpTimer)
         if (jumpOffTimer) clearTimeout(jumpOffTimer)
         if (reconnectTimer) clearTimeout(reconnectTimer)
-        leaveTimer = jumpTimer = jumpOffTimer = reconnectTimer = null
+
+        jumpTimer = null
+        jumpOffTimer = null
+        reconnectTimer = null
     }
 
     function scheduleNextJump() {
         if (stopped || !bot.entity) return
 
         bot.setControlState('jump', true)
+
         jumpOffTimer = setTimeout(() => {
-            bot.setControlState('jump', false)
+            if (!stopped && bot.entity) {
+                bot.setControlState('jump', false)
+            }
         }, 300)
 
-        // random jump 20s -> 5m
+        // Random jump: 20 seconds -> 5 minutes
         const nextJump = randomMs(20000, 5 * 60 * 1000)
+
         jumpTimer = setTimeout(scheduleNextJump, nextJump)
     }
 
     function scheduleReconnect(reason = 'end') {
         if (stopped) return
 
-        // FAST RECONNECT: 2s -> 10s (User requested faster)
         let delay = randomMs(2000, 10000)
 
-        // Slight backoff for repeated failures, but keep it snappy
         reconnectAttempts++
+
         if (reconnectAttempts > 3) {
-            delay += 5000 // Add 5s if it's failing a lot
+            delay += 5000
         }
 
-        // Cap at 30s max
         delay = Math.min(delay, 15000)
 
-        logThrottled(`[AFK] Rejoin scheduled in ${Math.round(delay / 1000)}s (reason: ${reason}, attempt: ${reconnectAttempts})`)
+        logThrottled(
+            `[AFK] Rejoin scheduled in ${Math.round(delay / 1000)}s (reason: ${reason}, attempt: ${reconnectAttempts})`
+        )
 
         reconnectTimer = setTimeout(() => {
             if (stopped) return
+
             try {
-                if (typeof createBot === 'function') createBot()
+                if (typeof createBot === 'function') {
+                    createBot()
+                }
             } catch (e) {
-                console.log('[AFK] createBot error:', e?.message || e)
+                console.log(
+                    '[AFK] createBot error:',
+                    e?.message || e
+                )
+
                 scheduleReconnect('createBot-error')
             }
         }, delay)
     }
 
     bot.once('spawn', () => {
-        // reset attempt counter on successful connect
         reconnectAttempts = 0
 
-        // clear any old timers
         cleanup()
         stopped = false
 
-        // Stay connected: 2 minutes -> 15 minutes (More realistic AFK behavior)
-        // Stay connected 1-5 minutes before a scheduled leave/rejoin cycle.
-        const stayTime = randomMs(60000, 300000)
+        logThrottled(
+            '[AFK] Bot connected - staying in server permanently'
+        )
 
-        logThrottled(`[AFK] Will leave in ${Math.round(stayTime / 1000)} seconds`)
-
+        // Start random jumping
         scheduleNextJump()
-
-        leaveTimer = setTimeout(() => {
-            if (stopped) return
-            logThrottled('[AFK] Leaving server (timer)')
-            cleanup()
-            try {
-                bot.quit()
-            } catch (e) {
-                // ignore if already closed
-            }
-        }, stayTime)
     })
 
-    // When the connection ends for ANY reason, just clean up our timers.
-    // Reconnection is handled by index.js — no duplicate reconnect here.
+    // Connection ended
     bot.on('end', () => {
         cleanup()
+
+        // If index.js already handles reconnecting,
+        // leave this commented.
+        // scheduleReconnect('end')
     })
 
     bot.on('kicked', () => {
