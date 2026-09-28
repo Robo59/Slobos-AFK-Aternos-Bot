@@ -6,8 +6,8 @@
     "type": "offline"
   },
   "server": {
-    "ip": "Planet_of_Friends.aternos.me",
-    "port": 35674,
+    "ip": "smp-friends.play.hosting",
+    "port": 25898,
     "version": "",
     "try-creative": false
   },
